@@ -2,8 +2,8 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>탄막 서바이벌 - 아레나 축소 버전</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>탄막 서바이벌 - 모바일 세로 버전</title>
     <style>
         body {
             margin: 0;
@@ -16,26 +16,36 @@
             justify-content: center;
             min-height: 100vh;
             overflow: hidden;
-            touch-action: none;
+            touch-action: none; /* 브라우저 스크롤 및 바운스 방지 */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #game-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 320px; /* 세로형 핸드폰 기준 가로폭 */
         }
         #ui-container {
-            width: 600px;
+            width: 100%; 
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
-            user-select: none;
+            margin-bottom: 15px;
+            padding: 0 10px;
+            box-sizing: border-box;
         }
         .info-box {
-            font-size: 20px;
+            font-size: 16px;
             font-weight: bold;
+            letter-spacing: -0.5px;
         }
         #hp-wrapper {
-            width: 250px;
-            height: 20px;
+            width: 130px;
+            height: 16px;
             background-color: #333;
             border: 2px solid #fff;
-            border-radius: 5px;
+            border-radius: 4px;
             overflow: hidden;
         }
         #hp-bar {
@@ -46,51 +56,51 @@
         }
         canvas {
             background-color: #000;
-            box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
-            cursor: grab;
-        }
-        canvas:active {
-            cursor: grabbing;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.35);
         }
         #overlay {
             position: absolute;
-            font-size: 80px;
+            font-size: 45px;
             font-weight: bold;
-            text-shadow: 0 0 20px rgba(255,255,255,0.8);
+            text-shadow: 0 0 15px rgba(255,255,255,0.8);
             pointer-events: none;
-            user-select: none;
             z-index: 10;
+            text-align: center;
+            width: 320px;
+            /* 캔버스 내부 중앙 정렬용 계산 */
+            margin-top: 40px; 
         }
         #restart-btn {
-            margin-top: 15px;
-            padding: 10px 20px;
+            margin-top: 20px;
+            padding: 12px 30px;
             font-size: 16px;
             font-weight: bold;
             background-color: #00f0ff;
             color: black;
             border: none;
-            border-radius: 5px;
+            border-radius: 25px;
             cursor: pointer;
             display: none;
-        }
-        #restart-btn:hover {
-            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
         }
     </style>
 </head>
 <body>
 
-    <div id="ui-container">
-        <div class="info-box">TIME: <span id="timer-text">60.00</span>s</div>
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <span class="info-box">HP</span>
-            <div id="hp-wrapper"><div id="hp-bar"></div></div>
+    <div id="game-wrapper">
+        <div id="ui-container">
+            <div class="info-box">TIME: <span id="timer-text">60.00</span>s</div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="info-box">HP</span>
+                <div id="hp-wrapper"><div id="hp-bar"></div></div>
+            </div>
         </div>
-    </div>
 
-    <div id="overlay">3</div>
-    <canvas id="gameCanvas" width="600" height="600"></canvas>
-    <button id="restart-btn" onclick="resetGame()">다시 도전하기</button>
+        <div id="overlay">3</div>
+        <canvas id="gameCanvas" width="320" height="480"></canvas>
+        <button id="restart-btn" onclick="resetGame()">다시 도전하기</button>
+    </div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
@@ -100,8 +110,8 @@
         const overlay = document.getElementById('overlay');
         const restartBtn = document.getElementById('restart-btn');
 
-        // 🌟 파란 네모 틀 크기를 줄이고(360), 완벽히 중앙에 배치 (600px 캔버스 기준 여백 120px)
-        const ARENA = { x: 120, y: 120, size: 360 }; 
+        // 🌟 세로형 공간에 맞춘 파란 네모 틀 배치 (중앙 기준 정렬)
+        const ARENA = { x: 50, y: 130, size: 220 }; 
         let gameState = 'countdown';
         let countdownValue = 3;
         let gameTime = 60.00; 
@@ -110,56 +120,77 @@
         let specialAttackTimer = 0;
 
         let player = {
-            x: 300,
-            y: 300,
-            radius: 8,
+            x: 160, // 320의 절반 (중앙)
+            y: 240, // 480의 절반 (중앙)
+            radius: 6, 
             speed: 4.5,
             hp: 200,
             maxHp: 200
         };
 
-        let keys = {};
+        // 모바일 터치(쓸기) 제어 변수
         let isDragging = false;
+        let lastTouchX = 0;
+        let lastTouchY = 0;
 
-        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
-        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
-
-        function getCanvasCoords(e) {
-            const rect = canvas.getBoundingClientRect();
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            return {
-                x: (clientX - rect.left) * (canvas.width / rect.width),
-                y: (clientY - rect.top) * (canvas.height / rect.height)
-            };
-        }
-
-        function handleStart(e) {
+        // 터치 조작 로직 (화면 아무 곳이나 쓸어도 캐릭터가 이동함)
+        function handleTouchStart(e) {
             if (gameState !== 'playing') return;
-            const coords = getCanvasCoords(e);
-            let dist = Math.hypot(coords.x - player.x, coords.y - player.y);
-            if (dist < player.radius + 35) { 
-                isDragging = true;
-            }
+            isDragging = true;
+            
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            lastTouchX = touch.clientX - rect.left;
+            lastTouchY = touch.clientY - rect.top;
         }
 
-        function handleMove(e) {
+        function handleTouchMove(e) {
             if (!isDragging || gameState !== 'playing') return;
-            const coords = getCanvasCoords(e);
-            player.x = coords.x;
-            player.y = coords.y;
+            
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const currentTouchX = touch.clientX - rect.left;
+            const currentTouchY = touch.clientY - rect.top;
+
+            // 변화량(쓸어넘긴 거리)만큼 플레이어 이동
+            const deltaX = currentTouchX - lastTouchX;
+            const deltaY = currentTouchY - lastTouchY;
+
+            player.x += deltaX;
+            player.y += deltaY;
+
+            lastTouchX = currentTouchX;
+            lastTouchY = currentTouchY;
         }
 
-        function handleEnd() {
+        function handleTouchEnd() {
             isDragging = false;
         }
 
-        canvas.addEventListener('mousedown', handleStart);
-        window.addEventListener('mousemove', handleMove);
-        window.addEventListener('mouseup', handleEnd);
-        canvas.addEventListener('touchstart', handleStart, { passive: true });
-        window.addEventListener('touchmove', handleMove, { passive: false });
-        window.addEventListener('touchend', handleEnd);
+        // 터치 이벤트 연결
+        canvas.addEventListener('touchstart', handleTouchStart, { passive: true });
+        window.addEventListener('touchmove', handleTouchMove, { passive: false });
+        window.addEventListener('touchend', handleTouchEnd);
+
+        // PC 테스트 가상 마우스 드래그 지원
+        canvas.addEventListener('mousedown', (e) => {
+            if (gameState !== 'playing') return;
+            isDragging = true;
+            const rect = canvas.getBoundingClientRect();
+            lastTouchX = e.clientX - rect.left;
+            lastTouchY = e.clientY - rect.top;
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging || gameState !== 'playing') return;
+            const rect = canvas.getBoundingClientRect();
+            const curX = e.clientX - rect.left;
+            const curY = e.clientY - rect.top;
+            player.x += (curX - lastTouchX);
+            player.y += (curY - lastTouchY);
+            lastTouchX = curX;
+            lastTouchY = curY;
+        });
+        window.addEventListener('mouseup', () => isDragging = false);
 
         let projectiles = [];
         let particles = [];
@@ -181,7 +212,7 @@
 
                 if (this.type === 'curve') {
                     let speed = Math.hypot(this.vx, this.vy);
-                    let angle = Math.atan2(this.vy, this.vx) + 0.015; 
+                    let angle = Math.atan2(this.vy, this.vx) + 0.016; 
                     this.vx = Math.cos(angle) * speed;
                     this.vy = Math.sin(angle) * speed;
                 }
@@ -190,7 +221,7 @@
             draw() {
                 ctx.save();
                 if (this.type === 'ultimate') {
-                    ctx.shadowBlur = 15;
+                    ctx.shadowBlur = 10;
                     ctx.shadowColor = this.color;
                 }
                 ctx.beginPath();
@@ -223,8 +254,9 @@
             }, 1000);
         }
 
+        // 세로형 해상도(320x480) 외곽에 맞춰 스폰 좌표 보정
         function getRandomOuterPos() {
-            const pad = 20;
+            const pad = 15;
             const side = Math.floor(Math.random() * 4);
             if (side === 0) return { x: Math.random() * canvas.width, y: -pad };
             if (side === 1) return { x: Math.random() * canvas.width, y: canvas.height + pad };
@@ -233,36 +265,36 @@
         }
 
         function spawnPattern(timeLeft) {
-            // 1. 유도 탄막 (순차 발사)
-            if (spawnTimer % 32 === 0) {
+            // 1. 기본 조준탄 (순차적 스폰)
+            if (spawnTimer % 35 === 0) {
                 let pos = getRandomOuterPos();
                 let angle = Math.atan2(player.y - pos.y, player.x - pos.x);
-                let speed = 3.5 + (60 - timeLeft) * 0.04; 
-                projectiles.push(new Projectile(pos.x, pos.y, Math.cos(angle) * speed, Math.sin(angle) * speed, 6, '#ff4444'));
+                let speed = 2.6 + (60 - timeLeft) * 0.03; 
+                projectiles.push(new Projectile(pos.x, pos.y, Math.cos(angle) * speed, Math.sin(angle) * speed, 4, '#ff4444'));
             }
 
             // 2. 주황색 곡선 탄막
-            if (timeLeft < 50 && spawnTimer % 48 === 0) {
+            if (timeLeft < 50 && spawnTimer % 52 === 0) {
                 let pos = getRandomOuterPos();
                 let angle = Math.atan2(player.y - pos.y, player.x - pos.x);
-                projectiles.push(new Projectile(pos.x, pos.y, Math.cos(angle) * 3, Math.sin(angle) * 3, 7, '#ffaa00', 'curve'));
+                projectiles.push(new Projectile(pos.x, pos.y, Math.cos(angle) * 2.3, Math.sin(angle) * 2.3, 5, '#ffaa00', 'curve'));
             }
 
-            // 3. 직선 칼날 탄막 (줄어든 아레나 크기에 맞춤형 리포지셔닝)
-            if (spawnTimer % 160 === 0) {
+            // 3. 직선 칼날 탄막 (세로형 화면 간격 조절)
+            if (spawnTimer % 170 === 0) {
                 let side = Math.floor(Math.random() * 4);
                 for (let i = 0; i < 3; i++) {
                     let x, y, vx, vy;
                     let offset = ARENA.x + (ARENA.size / 2) * i;
-                    if (side === 0) { x = offset; y = -10; vx = 0; vy = 4.2; }
-                    else if (side === 1) { x = offset; y = 610; vx = 0; vy = -4.2; }
-                    else if (side === 2) { x = -10; y = offset; vx = 4.2; vy = 0; }
-                    else { x = 610; y = offset; vx = -4.2; vy = 0; }
-                    projectiles.push(new Projectile(x, y, vx, vy, 5, '#00ffcc'));
+                    if (side === 0) { x = offset; y = -10; vx = 0; vy = 3.2; }
+                    else if (side === 1) { x = offset; y = 490; vx = 0; vy = -3.2; }
+                    else if (side === 2) { x = -10; y = offset; vx = 3.2; vy = 0; }
+                    else { x = 330; y = offset; vx = -3.2; vy = 0; }
+                    projectiles.push(new Projectile(x, y, vx, vy, 4, '#00ffcc'));
                 }
             }
 
-            // 4. 필살기 보이드 코어 연출 (15초 주기)
+            // 4. 연출 필살기 패턴: 보이드 코어 대폭발 (15초 주기 작동)
             if (Math.floor(timeLeft) % 15 === 0 && specialAttackTimer <= 0) {
                 triggerSpecialAttack();
                 specialAttackTimer = 180; 
@@ -271,26 +303,29 @@
         }
 
         function triggerSpecialAttack() {
-            let core = new Projectile(300, -30, 0, 1.5, 5, '#b000ff', 'ultimate');
+            // 세로 화면 중앙 상단에서 에너지가 진입
+            let core = new Projectile(160, -20, 0, 1.2, 4, '#b000ff', 'ultimate');
             projectiles.push(core);
 
             let growInterval = setInterval(() => {
                 if (gameState !== 'playing') { clearInterval(growInterval); return; }
-                core.radius += 1.2;
-                core.color = `hsl(${260 + core.radius}, 100%, 60%)`;
+                core.radius += 0.8;
+                core.color = `hsl(${260 + core.radius * 1.5}, 100%, 60%)`;
                 
-                if (core.radius >= 35) {
+                // 세로형 아레나 중앙 부근(y:240)에서 대폭발
+                if (core.y >= 200 || core.radius >= 24) { 
                     clearInterval(growInterval);
                     projectiles = projectiles.filter(p => p !== core); 
                     
-                    for(let i=0; i<25; i++) {
+                    for(let i=0; i<15; i++) {
                         particles.push({
                             x: core.x, y: core.y,
-                            vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10,
-                            radius: Math.random() * 5 + 2, color: '#e000ff', life: 25
+                            vx: (Math.random() - 0.5) * 7, vy: (Math.random() - 0.5) * 7,
+                            radius: Math.random() * 3 + 1, color: '#e000ff', life: 20
                         });
                     }
 
+                    // 순차 링 사격 탄막
                     let angle = 0;
                     let ringInterval = setInterval(() => {
                         if (gameState !== 'playing' || angle >= Math.PI * 2) { clearInterval(ringInterval); return; }
@@ -298,14 +333,14 @@
                             let currentAngle = angle + (j * (Math.PI * 2 / 3));
                             projectiles.push(new Projectile(
                                 core.x, core.y, 
-                                Math.cos(currentAngle) * 3.5, Math.sin(currentAngle) * 3.5, 
-                                7, '#ffff00', 'ultimate'
+                                Math.cos(currentAngle) * 2.5, Math.sin(currentAngle) * 2.5, 
+                                5, '#ffff00', 'ultimate'
                             ));
                         }
-                        angle += 0.4;
-                    }, 50);
+                        angle += 0.5;
+                    }, 65);
                 }
-            }, 35);
+            }, 40);
         }
 
         function update(dt) {
@@ -315,26 +350,12 @@
             if (gameTime <= 0) {
                 gameTime = 0;
                 gameState = 'victory';
-                endGame("VICTORY! 완벽한 생존!");
+                endGame("VICTORY!<br>완벽하게 살아남았습니다!");
                 return;
             }
             timerText.innerText = gameTime.toFixed(2);
 
-            if (!isDragging) {
-                let dx = 0; let dy = 0;
-                if (keys['arrowup'] || keys['w']) dy -= 1;
-                if (keys['arrowdown'] || keys['s']) dy += 1;
-                if (keys['arrowleft'] || keys['a']) dx -= 1;
-                if (keys['arrowright'] || keys['d']) dx += 1;
-
-                if (dx !== 0 || dy !== 0) {
-                    let length = Math.hypot(dx, dy);
-                    player.x += (dx / length) * player.speed;
-                    player.y += (dy / length) * player.speed;
-                }
-            }
-
-            // 수정된 아레나 테두리 충돌 및 벽 디버프 판정
+            // 파란 네모 벽 가둠 제약 충돌 판정
             let touchingBorder = false;
             if (player.x - player.radius < ARENA.x) { player.x = ARENA.x + player.radius; touchingBorder = true; }
             if (player.x + player.radius > ARENA.x + ARENA.size) { player.x = ARENA.x + ARENA.size - player.radius; touchingBorder = true; }
@@ -342,17 +363,18 @@
             if (player.y + player.radius > ARENA.y + ARENA.size) { player.y = ARENA.y + ARENA.size - player.radius; touchingBorder = true; }
 
             if (touchingBorder) {
-                player.hp -= 0.3; 
+                player.hp -= 0.4; // 파란 벽 접촉 데미지
             }
 
             spawnTimer++;
             spawnPattern(gameTime);
 
+            // 투사체 처리
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 let p = projectiles[i];
                 p.update();
 
-                if (p.x < -120 || p.x > canvas.width + 120 || p.y < -120 || p.y > canvas.height + 120) {
+                if (p.x < -50 || p.x > canvas.width + 50 || p.y < -50 || p.y > canvas.height + 50) {
                     projectiles.splice(i, 1);
                     continue;
                 }
@@ -360,17 +382,17 @@
                 let dist = Math.hypot(player.x - p.x, player.y - p.y);
                 if (dist < player.radius + p.radius) {
                     if (p.type === 'ultimate') {
-                        player.hp -= 30; 
+                        player.hp -= 35; 
                     } else {
                         player.hp -= 15; 
                     }
                     projectiles.splice(i, 1);
 
-                    for(let k=0; k<8; k++){
+                    for(let k=0; k<6; k++){
                         particles.push({
                             x: player.x, y: player.y,
-                            vx: (Math.random() - 0.5) * 6, vy: (Math.random() - 0.5) * 6,
-                            radius: Math.random() * 3 + 1, color: '#fff', life: 15
+                            vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4,
+                            radius: Math.random() * 2 + 1, color: '#fff', life: 12
                         });
                     }
                 }
@@ -388,7 +410,7 @@
 
             if (player.hp <= 0) {
                 gameState = 'gameover';
-                endGame("GAME OVER.. 다시 도전해보세요!");
+                endGame("GAME OVER<br>다시 도전해보세요!");
             }
         }
 
@@ -396,10 +418,10 @@
             ctx.fillStyle = '#000000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 🌟 600x600 화면 안에서 완벽하게 상하좌우 모든 변이 눈에 보이는 파란 네모 상자
+            // 파란 네모 틀 그리기
             ctx.strokeStyle = '#00f0ff';
-            ctx.lineWidth = 4;
-            ctx.shadowBlur = 10;
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 8;
             ctx.shadowColor = '#00f0ff';
             ctx.strokeRect(ARENA.x, ARENA.y, ARENA.size, ARENA.size);
             ctx.shadowBlur = 0; 
@@ -415,9 +437,10 @@
                 ctx.fill();
             }
 
+            // 플레이어 캐릭터 (하얀 원)
             if (player.hp > 0) {
                 ctx.fillStyle = '#ffffff';
-                ctx.shadowBlur = 10;
+                ctx.shadowBlur = 8;
                 ctx.shadowColor = '#ffffff';
                 ctx.beginPath();
                 ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
@@ -440,27 +463,25 @@
 
         function endGame(msg) {
             overlay.style.display = 'block';
-            overlay.style.fontSize = '30px';
-            overlay.innerText = msg;
+            overlay.style.fontSize = '22px';
+            overlay.innerHTML = msg;
             restartBtn.style.display = 'block';
             isDragging = false;
         }
 
         function resetGame() {
-            player.x = 300;
-            player.y = 300;
+            player.x = 160;
+            player.y = 240;
             player.hp = 200; 
             gameTime = 60.00;
             spawnTimer = 0;
             specialAttackTimer = 0;
             projectiles = [];
             particles = [];
-            keys = {};
             isDragging = false;
             
             hpBar.style.width = '100%';
             timerText.innerText = "60.00";
-            overlay.style.fontSize = '80px';
             restartBtn.style.display = 'none';
             
             startCountdown();
