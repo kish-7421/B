@@ -2,8 +2,8 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>탄막 서바이벌 60초</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>탄막 서바이벌 - 아레나 축소 버전</title>
     <style>
         body {
             margin: 0;
@@ -16,6 +16,7 @@
             justify-content: center;
             min-height: 100vh;
             overflow: hidden;
+            touch-action: none;
         }
         #ui-container {
             width: 600px;
@@ -23,13 +24,14 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 10px;
+            user-select: none;
         }
         .info-box {
             font-size: 20px;
             font-weight: bold;
         }
         #hp-wrapper {
-            width: 200px;
+            width: 250px;
             height: 20px;
             background-color: #333;
             border: 2px solid #fff;
@@ -40,11 +42,15 @@
             width: 100%;
             height: 100%;
             background-color: #ff3333;
-            transition: width 0.1s linear;
+            transition: width 0.05s linear;
         }
         canvas {
             background-color: #000;
             box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+            cursor: grab;
+        }
+        canvas:active {
+            cursor: grabbing;
         }
         #overlay {
             position: absolute;
@@ -53,6 +59,7 @@
             text-shadow: 0 0 20px rgba(255,255,255,0.8);
             pointer-events: none;
             user-select: none;
+            z-index: 10;
         }
         #restart-btn {
             margin-top: 15px;
@@ -93,56 +100,88 @@
         const overlay = document.getElementById('overlay');
         const restartBtn = document.getElementById('restart-btn');
 
-        // 게임 설정 및 상태
-        const ARENA = { x: 75, y: 75, size: 450 }; // 파란 네모 틀 범위
-        let gameState = 'countdown'; // countdown, playing, gameover, victory
+        // 🌟 파란 네모 틀 크기를 줄이고(360), 완벽히 중앙에 배치 (600px 캔버스 기준 여백 120px)
+        const ARENA = { x: 120, y: 120, size: 360 }; 
+        let gameState = 'countdown';
         let countdownValue = 3;
         let gameTime = 60.00; 
         let lastTime = 0;
         let spawnTimer = 0;
         let specialAttackTimer = 0;
 
-        // 플레이어 캐릭터
         let player = {
             x: 300,
             y: 300,
             radius: 8,
-            speed: 4,
-            hp: 100,
-            maxHp: 100
+            speed: 4.5,
+            hp: 200,
+            maxHp: 200
         };
 
-        // 입력 제어
         let keys = {};
+        let isDragging = false;
+
         window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
         window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-        // 투사체 및 이펙트 배열
+        function getCanvasCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: (clientX - rect.left) * (canvas.width / rect.width),
+                y: (clientY - rect.top) * (canvas.height / rect.height)
+            };
+        }
+
+        function handleStart(e) {
+            if (gameState !== 'playing') return;
+            const coords = getCanvasCoords(e);
+            let dist = Math.hypot(coords.x - player.x, coords.y - player.y);
+            if (dist < player.radius + 35) { 
+                isDragging = true;
+            }
+        }
+
+        function handleMove(e) {
+            if (!isDragging || gameState !== 'playing') return;
+            const coords = getCanvasCoords(e);
+            player.x = coords.x;
+            player.y = coords.y;
+        }
+
+        function handleEnd() {
+            isDragging = false;
+        }
+
+        canvas.addEventListener('mousedown', handleStart);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+        canvas.addEventListener('touchstart', handleStart, { passive: true });
+        window.addEventListener('touchmove', handleMove, { passive: false });
+        window.addEventListener('touchend', handleEnd);
+
         let projectiles = [];
         let particles = [];
 
-        // 투사체 생성 함수 구별용
         class Projectile {
-            constructor(x, y, vx, vy, radius, color, type = 'normal', extra = {}) {
+            constructor(x, y, vx, vy, radius, color, type = 'normal') {
                 this.x = x;
                 this.y = y;
                 this.vx = vx;
                 this.vy = vy;
                 this.radius = radius;
                 this.color = color;
-                this.type = type; // normal, laser, special
-                this.extra = extra;
-                this.alpha = 1;
+                this.type = type;
             }
 
             update() {
                 this.x += this.vx;
                 this.y += this.vy;
 
-                // 특수 패턴용 로직 (지그재그 또는 회전 등)
                 if (this.type === 'curve') {
                     let speed = Math.hypot(this.vx, this.vy);
-                    let angle = Math.atan2(this.vy, this.vx) + 0.02; // 살짝 휨
+                    let angle = Math.atan2(this.vy, this.vx) + 0.015; 
                     this.vx = Math.cos(angle) * speed;
                     this.vy = Math.sin(angle) * speed;
                 }
@@ -162,7 +201,6 @@
             }
         }
 
-        // 카운트다운 시스템
         function startCountdown() {
             gameState = 'countdown';
             countdownValue = 3;
@@ -185,10 +223,8 @@
             }, 1000);
         }
 
-        // 외곽 랜덤 좌표 반환 (공격이 날아올 시작점)
         function getRandomOuterPos() {
             const pad = 20;
-            // 0:상, 1:하, 2:좌, 3:우
             const side = Math.floor(Math.random() * 4);
             if (side === 0) return { x: Math.random() * canvas.width, y: -pad };
             if (side === 1) return { x: Math.random() * canvas.width, y: canvas.height + pad };
@@ -196,116 +232,109 @@
             return { x: canvas.width + pad, y: Math.random() * canvas.height };
         }
 
-        // --- 패턴 설계 (난이도: 중상) ---
         function spawnPattern(timeLeft) {
-            // 1. 기본 조준탄 (플레이어의 위치를 저격)
-            if (spawnTimer % 25 === 0) {
+            // 1. 유도 탄막 (순차 발사)
+            if (spawnTimer % 32 === 0) {
                 let pos = getRandomOuterPos();
                 let angle = Math.atan2(player.y - pos.y, player.x - pos.x);
-                let speed = 4 + (60 - timeLeft) * 0.05; // 시간이 지날수록 미세하게 빨라짐
+                let speed = 3.5 + (60 - timeLeft) * 0.04; 
                 projectiles.push(new Projectile(pos.x, pos.y, Math.cos(angle) * speed, Math.sin(angle) * speed, 6, '#ff4444'));
             }
 
-            // 2. 궤적이 휘는 주황색 곡선탄 (35초 이하부터 등장)
-            if (timeLeft < 45 && spawnTimer % 40 === 0) {
+            // 2. 주황색 곡선 탄막
+            if (timeLeft < 50 && spawnTimer % 48 === 0) {
                 let pos = getRandomOuterPos();
                 let angle = Math.atan2(player.y - pos.y, player.x - pos.x);
-                projectiles.push(new Projectile(pos.x, pos.y, Math.cos(angle) * 3.5, Math.sin(angle) * 3.5, 7, '#ffaa00', 'curve'));
+                projectiles.push(new Projectile(pos.x, pos.y, Math.cos(angle) * 3, Math.sin(angle) * 3, 7, '#ffaa00', 'curve'));
             }
 
-            // 3. 고속 칼날 탄막 (한 방향에서 일렬로 밀고 들어옴)
-            if (spawnTimer % 120 === 0) {
+            // 3. 직선 칼날 탄막 (줄어든 아레나 크기에 맞춤형 리포지셔닝)
+            if (spawnTimer % 160 === 0) {
                 let side = Math.floor(Math.random() * 4);
-                for (let i = 0; i < 5; i++) {
+                for (let i = 0; i < 3; i++) {
                     let x, y, vx, vy;
-                    if (side === 0) { x = ARENA.x + (ARENA.size/4)*i; y = 0; vx = 0; vy = 6; }
-                    else if (side === 1) { x = ARENA.x + (ARENA.size/4)*i; y = 600; vx = 0; vy = -6; }
-                    else if (side === 2) { x = 0; y = ARENA.y + (ARENA.size/4)*i; vx = 6; vy = 0; }
-                    else { x = 600; y = ARENA.y + (ARENA.size/4)*i; vx = -6; vy = 0; }
+                    let offset = ARENA.x + (ARENA.size / 2) * i;
+                    if (side === 0) { x = offset; y = -10; vx = 0; vy = 4.2; }
+                    else if (side === 1) { x = offset; y = 610; vx = 0; vy = -4.2; }
+                    else if (side === 2) { x = -10; y = offset; vx = 4.2; vy = 0; }
+                    else { x = 610; y = offset; vx = -4.2; vy = 0; }
                     projectiles.push(new Projectile(x, y, vx, vy, 5, '#00ffcc'));
                 }
             }
 
-            // ✨ 4. 퀄리티 좋은 멋진 연출 패턴: [보이드 붕괴 (Void Collapse)]
-            // 15초 주기(남은 시간 45초, 30초, 15초 부근)로 화면 중앙에 거대한 코어가 생성된 뒤 사방으로 폭발
+            // 4. 필살기 보이드 코어 연출 (15초 주기)
             if (Math.floor(timeLeft) % 15 === 0 && specialAttackTimer <= 0) {
                 triggerSpecialAttack();
-                specialAttackTimer = 180; // 짤막한 쿨타임 배치로 연속 중복 발동 방지
+                specialAttackTimer = 180; 
             }
             if (specialAttackTimer > 0) specialAttackTimer--;
         }
 
-        // 멋진 특수 패턴 연출 구현
         function triggerSpecialAttack() {
-            // 1 단계: 중앙에 거대 경고 에너지가 모임
-            let core = new Projectile(300, 300, 0, 0, 4, '#b000ff', 'ultimate');
+            let core = new Projectile(300, -30, 0, 1.5, 5, '#b000ff', 'ultimate');
             projectiles.push(core);
 
-            // 애니메이션 효과 처럼 보이게 속성을 커스텀 주입
             let growInterval = setInterval(() => {
                 if (gameState !== 'playing') { clearInterval(growInterval); return; }
-                core.radius += 1.5;
-                core.color = `hsl(${280 + core.radius}, 100%, 60%)`; // 무지개빛 충전 효과
+                core.radius += 1.2;
+                core.color = `hsl(${260 + core.radius}, 100%, 60%)`;
                 
-                if (core.radius >= 40) {
+                if (core.radius >= 35) {
                     clearInterval(growInterval);
-                    // 코어 폭발!! 360도 전 방향으로 24개의 화려한 후속 유도 유성탄 발사
-                    projectiles = projectiles.filter(p => p !== core); // 중심 코어 소멸
+                    projectiles = projectiles.filter(p => p !== core); 
                     
-                    // 폭발 이펙트 파티클 생성
-                    for(let i=0; i<30; i++) {
+                    for(let i=0; i<25; i++) {
                         particles.push({
-                            x: 300, y: 300,
-                            vx: (Math.random() - 0.5) * 12,
-                            vy: (Math.random() - 0.5) * 12,
-                            radius: Math.random() * 6 + 2,
-                            color: '#e000ff',
-                            life: 30
+                            x: core.x, y: core.y,
+                            vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10,
+                            radius: Math.random() * 5 + 2, color: '#e000ff', life: 25
                         });
                     }
 
-                    // 링 모양으로 뻗어나가는 정교한 투사체 무리
-                    for (let angle = 0; angle < Math.PI * 2; angle += (Math.PI * 2) / 24) {
-                        let spd = 3;
-                        projectiles.push(new Projectile(
-                            300, 300, 
-                            Math.cos(angle) * spd, Math.sin(angle) * spd, 
-                            8, '#ffff00', 'ultimate'
-                        ));
-                    }
+                    let angle = 0;
+                    let ringInterval = setInterval(() => {
+                        if (gameState !== 'playing' || angle >= Math.PI * 2) { clearInterval(ringInterval); return; }
+                        for(let j=0; j<3; j++) {
+                            let currentAngle = angle + (j * (Math.PI * 2 / 3));
+                            projectiles.push(new Projectile(
+                                core.x, core.y, 
+                                Math.cos(currentAngle) * 3.5, Math.sin(currentAngle) * 3.5, 
+                                7, '#ffff00', 'ultimate'
+                            ));
+                        }
+                        angle += 0.4;
+                    }, 50);
                 }
-            }, 30);
+            }, 35);
         }
 
-        // 메인 루프 업데이트
         function update(dt) {
             if (gameState !== 'playing') return;
 
-            // 1. 타이머 감소
             gameTime -= dt / 1000;
             if (gameTime <= 0) {
                 gameTime = 0;
                 gameState = 'victory';
-                endGame("VICTORY! 생존 성공!");
+                endGame("VICTORY! 완벽한 생존!");
                 return;
             }
             timerText.innerText = gameTime.toFixed(2);
 
-            // 2. 플레이어 이동 처리 (대각선 속도 보정 구현)
-            let dx = 0;
-            let dy = 0;
-            if (keys['arrowup'] || keys['w']) dy -= 1;
-            if (keys['arrowdown'] || keys['s']) dy += 1;
-            if (keys['arrowleft'] || keys['a']) dx -= 1;
-            if (keys['arrowright'] || keys['d']) dx += 1;
+            if (!isDragging) {
+                let dx = 0; let dy = 0;
+                if (keys['arrowup'] || keys['w']) dy -= 1;
+                if (keys['arrowdown'] || keys['s']) dy += 1;
+                if (keys['arrowleft'] || keys['a']) dx -= 1;
+                if (keys['arrowright'] || keys['d']) dx += 1;
 
-            if (dx !== 0 || dy !== 0) {
-                let length = Math.hypot(dx, dy);
-                player.x += (dx / length) * player.speed;
-                player.y += (dy / length) * player.speed;
+                if (dx !== 0 || dy !== 0) {
+                    let length = Math.hypot(dx, dy);
+                    player.x += (dx / length) * player.speed;
+                    player.y += (dy / length) * player.speed;
+                }
             }
 
-            // 3. 파란 네모 틀 판정 (닿으면 조금씩 HP가 닳음)
+            // 수정된 아레나 테두리 충돌 및 벽 디버프 판정
             let touchingBorder = false;
             if (player.x - player.radius < ARENA.x) { player.x = ARENA.x + player.radius; touchingBorder = true; }
             if (player.x + player.radius > ARENA.x + ARENA.size) { player.x = ARENA.x + ARENA.size - player.radius; touchingBorder = true; }
@@ -313,36 +342,30 @@
             if (player.y + player.radius > ARENA.y + ARENA.size) { player.y = ARENA.y + ARENA.size - player.radius; touchingBorder = true; }
 
             if (touchingBorder) {
-                player.hp -= 0.4; // 국소적인 도트 데미지 발생
+                player.hp -= 0.3; 
             }
 
-            // 4. 패턴 스폰 타이머 작동
             spawnTimer++;
             spawnPattern(gameTime);
 
-            // 5. 투사체 이동 및 충돌 체크 (정밀한 원형 충돌 판정)
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 let p = projectiles[i];
                 p.update();
 
-                // 화면 밖으로 멀리 나가면 메모리 확보를 위해 제거
-                if (p.x < -100 || p.x > canvas.width + 100 || p.y < -100 || p.y > canvas.height + 100) {
+                if (p.x < -120 || p.x > canvas.width + 120 || p.y < -120 || p.y > canvas.height + 120) {
                     projectiles.splice(i, 1);
                     continue;
                 }
 
-                // 플레이어와 정확한 충돌 감지 (피타고라스 거리 공식 적용)
                 let dist = Math.hypot(player.x - p.x, player.y - p.y);
                 if (dist < player.radius + p.radius) {
-                    // 충돌 발생!
                     if (p.type === 'ultimate') {
-                        player.hp -= 25; // 특수 공격은 큰 피해
+                        player.hp -= 30; 
                     } else {
-                        player.hp -= 12; // 일반 공격 피해
+                        player.hp -= 15; 
                     }
-                    projectiles.splice(i, 1); // 맞은 투사체는 소멸
+                    projectiles.splice(i, 1);
 
-                    // 피격 이펙트 파티클
                     for(let k=0; k<8; k++){
                         particles.push({
                             x: player.x, y: player.y,
@@ -353,45 +376,38 @@
                 }
             }
 
-            // 파티클 시스템 업데이트
             for(let i = particles.length - 1; i >= 0; i--) {
                 let pt = particles[i];
-                pt.x += pt.vx;
-                pt.y += pt.vy;
+                pt.x += pt.vx; pt.y += pt.vy;
                 pt.life--;
                 if(pt.life <= 0) particles.splice(i, 1);
             }
 
-            // HP 바 UI 업데이트 및 사망 판정
             if (player.hp < 0) player.hp = 0;
             hpBar.style.width = `${(player.hp / player.maxHp) * 100}%`;
 
             if (player.hp <= 0) {
                 gameState = 'gameover';
-                endGame("GAME OVER.. 체력이 모두 소진되었습니다.");
+                endGame("GAME OVER.. 다시 도전해보세요!");
             }
         }
 
-        // 화면 렌더링 그리기 작업
         function draw() {
-            // 배경 청소
             ctx.fillStyle = '#000000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 파란색 안전지대 네모 틀 그리기
+            // 🌟 600x600 화면 안에서 완벽하게 상하좌우 모든 변이 눈에 보이는 파란 네모 상자
             ctx.strokeStyle = '#00f0ff';
             ctx.lineWidth = 4;
             ctx.shadowBlur = 10;
             ctx.shadowColor = '#00f0ff';
             ctx.strokeRect(ARENA.x, ARENA.y, ARENA.size, ARENA.size);
-            ctx.shadowBlur = 0; // 이펙트 초기화
+            ctx.shadowBlur = 0; 
 
-            // 투사체 그리기
             for (let p of projectiles) {
                 p.draw();
             }
 
-            // 파티클 그리기
             for (let pt of particles) {
                 ctx.fillStyle = pt.color;
                 ctx.beginPath();
@@ -399,10 +415,9 @@
                 ctx.fill();
             }
 
-            // 플레이어 캐릭터 그리기 (하얀 원)
             if (player.hp > 0) {
                 ctx.fillStyle = '#ffffff';
-                ctx.shadowBlur = 8;
+                ctx.shadowBlur = 10;
                 ctx.shadowColor = '#ffffff';
                 ctx.beginPath();
                 ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
@@ -411,12 +426,10 @@
             }
         }
 
-        // 메인 루프 프레임 제어
         function gameLoop(timestamp) {
             if (gameState !== 'playing') return;
-            
             let dt = timestamp - lastTime;
-            if (dt > 100) dt = 16; // 탭 전환 등으로 인한 비정상 누적 프레임 방지
+            if (dt > 100) dt = 16;
             lastTime = timestamp;
 
             update(dt);
@@ -425,25 +438,25 @@
             requestAnimationFrame(gameLoop);
         }
 
-        // 게임 종료 처리
         function endGame(msg) {
             overlay.style.display = 'block';
             overlay.style.fontSize = '30px';
             overlay.innerText = msg;
             restartBtn.style.display = 'block';
+            isDragging = false;
         }
 
-        // 게임 초기화 및 재시작
         function resetGame() {
             player.x = 300;
             player.y = 300;
-            player.hp = 100;
+            player.hp = 200; 
             gameTime = 60.00;
             spawnTimer = 0;
             specialAttackTimer = 0;
             projectiles = [];
             particles = [];
             keys = {};
+            isDragging = false;
             
             hpBar.style.width = '100%';
             timerText.innerText = "60.00";
@@ -453,7 +466,6 @@
             startCountdown();
         }
 
-        // 최초 실행
         startCountdown();
     </script>
 </body>
